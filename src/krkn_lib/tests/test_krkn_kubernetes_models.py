@@ -1,3 +1,5 @@
+import unittest
+
 from krkn_lib.models.k8s import (
     AffectedNode,
     AffectedNodeStatus,
@@ -201,3 +203,45 @@ class TestPodsStatusVmisStatus(BaseTest):
         vs = VmisStatus({"recovered": []})
         assert vs.recovered == []
         assert vs.unrecovered == []
+
+
+class TestGuestReachableTimeParse(unittest.TestCase):
+    """Pure model tests; no cluster required."""
+
+    def test_vmis_status_recovered_without_guest_reachable_time(self):
+        """Unset guest probe → guest_reachable_time is None (not 0)."""
+        vs = VmisStatus(
+            {
+                "recovered": [
+                    {
+                        "vmi_name": "vmi1",
+                        "namespace": "default",
+                        "total_recovery_time": 15.0,
+                        "vmi_readiness_time": 8.0,
+                        "vmi_rescheduling_time": 3.0,
+                    }
+                ],
+                "unrecovered": [],
+            }
+        )
+        self.assertEqual(len(vs.recovered), 1)
+        self.assertIsNone(vs.recovered[0].guest_reachable_time)
+
+    def test_vmis_status_recovered_with_null_guest_reachable_time(self):
+        """Explicit JSON null also maps to None."""
+        vs = VmisStatus(
+            {
+                "recovered": [
+                    {
+                        "vmi_name": "vmi1",
+                        "namespace": "default",
+                        "total_recovery_time": 15.0,
+                        "vmi_readiness_time": 8.0,
+                        "vmi_rescheduling_time": 3.0,
+                        "guest_reachable_time": None,
+                    }
+                ],
+                "unrecovered": [],
+            }
+        )
+        self.assertIsNone(vs.recovered[0].guest_reachable_time)

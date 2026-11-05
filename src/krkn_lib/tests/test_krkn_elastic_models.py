@@ -1,7 +1,12 @@
 import datetime
+import unittest
 import uuid
 
-from krkn_lib.models.elastic.models import ElasticChaosRunTelemetry
+from krkn_lib.models.elastic.models import (
+    ElasticAffectedVMI,
+    ElasticChaosRunTelemetry,
+)
+from krkn_lib.models.k8s.models import VmisStatus
 from krkn_lib.models.telemetry import ChaosRunTelemetry
 from krkn_lib.tests import BaseTest
 
@@ -137,6 +142,12 @@ class TestKrknElasticModels(BaseTest):
             .affected_vmis.recovered[0]
             .vmi_rescheduling_time,
             3.0,
+        )
+        self.assertEqual(
+            elastic_telemetry.scenarios[0]
+            .affected_vmis.recovered[0]
+            .guest_reachable_time,
+            4.0,
         )
 
         # scenarios -> affected_vmis -> unrecovered
@@ -488,3 +499,51 @@ class TestKrknElasticModels(BaseTest):
             chaos_run_telemetry=telemetry
         )
         self.assertIsNone(elastic_telemetry.object_state_checks)
+
+class TestGuestReachableTimeElasticOmit(unittest.TestCase):
+    """Pure model tests; no cluster required."""
+
+    def test_guest_reachable_time_none_omitted_from_elastic_dict(self):
+        """
+        Contract: unset guest probe stays None and elasticsearch-dsl omits
+        the field from to_dict() (no guest_reachable_time: 0/null).
+        """
+        vs = VmisStatus(
+            {
+                "recovered": [
+                    {
+                        "vmi_name": "vmi1",
+                        "namespace": "default",
+                        "total_recovery_time": 15.0,
+                        "vmi_readiness_time": 8.0,
+                        "vmi_rescheduling_time": 3.0,
+                    }
+                ],
+                "unrecovered": [],
+            }
+        )
+        recovered = vs.recovered[0]
+        self.assertIsNone(recovered.guest_reachable_time)
+
+        elastic_vmi = ElasticAffectedVMI(
+            vmi_name=recovered.vmi_name,
+            namespace=recovered.namespace,
+            total_recovery_time=recovered.total_recovery_time,
+            vmi_readiness_time=recovered.vmi_readiness_time,
+            vmi_rescheduling_time=recovered.vmi_rescheduling_time,
+            guest_reachable_time=recovered.guest_reachable_time,
+        )
+        payload = elastic_vmi.to_dict()
+        self.assertNotIn("guest_reachable_time", payload)
+        self.assertEqual(payload["total_recovery_time"], 15.0)
+
+        # Measured value is still serialized when present.
+        measured = ElasticAffectedVMI(
+            vmi_name="vmi1",
+            namespace="default",
+            total_recovery_time=19.0,
+            vmi_readiness_time=8.0,
+            vmi_rescheduling_time=3.0,
+            guest_reachable_time=4.0,
+        ).to_dict()
+        self.assertEqual(measured["guest_reachable_time"], 4.0)
